@@ -325,7 +325,7 @@
       </div>
       <div class="dz-or">or paste a link</div>
       <form class="url-row" id="url-form">
-        <input type="url" id="url-input" placeholder="https://arxiv.org/pdf/2604.09277v1.pdf" aria-label="PDF URL" />
+        <input type="url" id="url-input" placeholder="https://example.com/paper.pdf" aria-label="PDF URL" />
         <button class="btn primary" type="submit" id="url-btn">Load</button>
       </form>
       <input type="file" id="file-input" accept="application/pdf,.pdf" hidden />
@@ -414,12 +414,6 @@
   <button class="btn primary" id="export-btn" disabled>↓ Download dark PDF</button>
 </div>
 
-<footer class="credit">
-  Reproduces the <a href="https://www.alphaxiv.org" target="_blank" rel="noopener">alphaXiv</a> dark filter
-  <span style="font-family:var(--mono)">invert(88.8%) hue-rotate(180deg) contrast()</span> ·
-  100% client-side · <a id="repo-link-2" href="#" target="_blank" rel="noopener">source on GitHub</a>
-</footer>
-
 <div class="toast" id="toast"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.min.mjs" type="module"></script>
@@ -429,7 +423,7 @@ import * as pdfjsLib from "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379
 pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.worker.min.mjs";
 
 const REPO_URL = "https://github.com/revantg/dark-pdf";
-const SAMPLE_URL = "https://pdfs.assets.alphaxiv.org/2604.09277v1.pdf";
+const SAMPLE_URL = "https://mozilla.github.io/pdf.js/web/compressed.tracemonkey-pldi-09.pdf";
 const PREVIEW_PAGES = 3;
 
 const DEFAULTS = { invert: 0.888, hue: 180, contrast: 1.0, scale: 2, quality: 80 };
@@ -442,7 +436,7 @@ const PRESETS = {
 const state = { ...DEFAULTS, doc: null, fileName: "", numPages: 0, compare: "dark", busy: false, cancel: false };
 
 const $ = (id) => document.getElementById(id);
-document.querySelectorAll("#repo-link, #repo-link-2").forEach(a => a.href = REPO_URL);
+document.querySelectorAll("#repo-link").forEach(a => a.href = REPO_URL);
 
 // ---- filter string: the ONE source of truth for preview AND export ----
 function filterString(s = state) {
@@ -796,7 +790,7 @@ async function loadFromUrl(url, name) {
   }
 }
 
-$("sample-btn").onclick = () => loadFromUrl(SAMPLE_URL, "2604.09277v1.pdf");
+$("sample-btn").onclick = () => loadFromUrl(SAMPLE_URL, "sample.pdf");
 
 $("url-form").addEventListener("submit", (e) => {
   e.preventDefault();

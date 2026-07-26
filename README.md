@@ -37,6 +37,47 @@ export (`ctx.filter` baked into pixels via jsPDF), so what you see is what you
 download. Built with vanilla HTML/CSS/JS + [PDF.js](https://mozilla.github.io/pdf.js/)
 and [jsPDF](https://github.com/parallax/jsPDF) from a CDN — no build step.
 
+## Command-line skill
+
+This repo also ships an **agent skill** (in [`skills/dark-pdf/`](skills/dark-pdf))
+that bakes the same dark filter into a PDF from the command line — handy for
+coding agents (Claude Code, Cursor, etc.) or your own terminal. Unlike the web
+app it uses PyMuPDF to rasterize each page, so it batch-converts whole files
+without a browser.
+
+### Install with `npx skills`
+
+Uses the [`skills`](https://github.com/vercel-labs/skills) CLI (requires
+**Node ≥ 22.20**). No global install needed — `npx` fetches it on demand:
+
+```bash
+# Install into the current project (.claude/skills/dark-pdf/, etc.)
+npx skills add revantg/dark-pdf
+
+# …or install globally for all projects (~/.claude/skills/dark-pdf/)
+npx skills add revantg/dark-pdf --global
+```
+
+The CLI reads [`skills/dark-pdf/SKILL.md`](skills/dark-pdf/SKILL.md) and links it
+into your agent's skills directory. Manage it with:
+
+```bash
+npx skills list             # show installed skills
+npx skills remove dark-pdf  # uninstall
+```
+
+### Run it
+
+```bash
+cd .claude/skills/dark-pdf        # wherever it was installed
+./run.sh input.pdf                # -> input.dark.pdf
+./run.sh input.pdf out.pdf --dpi 200 --invert 1.0
+```
+
+`./run.sh` bootstraps a local Python venv (PyMuPDF + numpy) on first run;
+nothing global is touched. See [`skills/dark-pdf/SKILL.md`](skills/dark-pdf/SKILL.md)
+for all flags.
+
 ## Local dev
 
 ```bash
