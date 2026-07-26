@@ -120,6 +120,16 @@
   .dropzone h1 { font-size: 22px; margin: 0; letter-spacing: -0.02em; }
   .dropzone p { margin: 0; color: var(--text-dim); max-width: 380px; }
   .dz-actions { display: flex; gap: 10px; margin-top: 4px; }
+  .dz-or { color: var(--text-faint); font-size: 12px; margin: 2px 0; display: flex; align-items: center; gap: 10px; }
+  .dz-or::before, .dz-or::after { content: ""; height: 1px; width: 34px; background: var(--border); }
+  .url-row { display: flex; gap: 8px; width: 100%; max-width: 440px; }
+  .url-row input {
+    flex: 1; font-family: var(--mono); font-size: 12px; color: var(--text);
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm);
+    padding: 9px 12px; outline: none; transition: border-color 0.12s;
+  }
+  .url-row input:focus { border-color: var(--accent); }
+  .url-row input::placeholder { color: var(--text-faint); }
 
   /* Buttons */
   .btn {
@@ -313,6 +323,11 @@
         <button class="btn primary" id="pick-btn">Choose PDF</button>
         <button class="btn ghost" id="sample-btn">Try a sample paper</button>
       </div>
+      <div class="dz-or">or paste a link</div>
+      <form class="url-row" id="url-form">
+        <input type="url" id="url-input" placeholder="https://arxiv.org/pdf/2604.09277v1.pdf" aria-label="PDF URL" />
+        <button class="btn primary" type="submit" id="url-btn">Load</button>
+      </form>
       <input type="file" id="file-input" accept="application/pdf,.pdf" hidden />
     </div>
 
@@ -741,7 +756,7 @@ $("compare-toggle").addEventListener("click", (e) => {
 // dropzone + picker
 const dz = $("dropzone"), fi = $("file-input");
 $("pick-btn").onclick = () => fi.click();
-dz.onclick = (e) => { if (e.target.closest("button")) return; fi.click(); };
+dz.onclick = (e) => { if (e.target.closest("button, input, form, .url-row")) return; fi.click(); };
 dz.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fi.click(); } };
 fi.onchange = () => handleFile(fi.files[0]);
 ["dragover", "dragenter"].forEach(ev => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.add("dragover"); }));
@@ -751,18 +766,45 @@ const pp = $("preview-pane");
 ["dragover", "dragenter"].forEach(ev => pp.addEventListener(ev, (e) => e.preventDefault()));
 pp.addEventListener("drop", (e) => { e.preventDefault(); dz.classList.remove("dragover"); if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]); });
 
-$("sample-btn").onclick = async () => {
+// load a PDF from a remote URL (shared by the sample button and the URL form)
+function fileNameFromUrl(u, fallback = "document.pdf") {
   try {
-    showLoading(true, "Fetching sample…");
-    const res = await fetch(SAMPLE_URL);
-    if (!res.ok) throw new Error("fetch failed");
+    const p = new URL(u).pathname.split("/").pop();
+    return p && /\.pdf$/i.test(p) ? decodeURIComponent(p) : (p ? decodeURIComponent(p) + ".pdf" : fallback);
+  } catch { return fallback; }
+}
+async function loadFromUrl(url, name) {
+  try {
+    showLoading(true, "Fetching PDF…");
+    const res = await fetch(url);
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const type = res.headers.get("content-type") || "";
     const buf = await res.arrayBuffer();
-    await loadPdf(buf, "2604.09277v1.pdf");
+    if (!type.includes("pdf")) {
+      // sniff the %PDF magic number as a fallback
+      const head = new Uint8Array(buf.slice(0, 5));
+      const magic = String.fromCharCode(...head);
+      if (!magic.startsWith("%PDF")) throw new Error("not a PDF");
+    }
+    await loadPdf(buf, name || fileNameFromUrl(url));
   } catch (e) {
     showLoading(false);
-    toast("Couldn't fetch the sample (network/CORS). Try your own PDF.", true);
+    const msg = /not a PDF/.test(e.message)
+      ? "That link isn't a PDF."
+      : "Couldn't fetch that link — the server may block cross-origin requests (CORS). Try downloading it and uploading the file.";
+    toast(msg, true);
   }
-};
+}
+
+$("sample-btn").onclick = () => loadFromUrl(SAMPLE_URL, "2604.09277v1.pdf");
+
+$("url-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const url = $("url-input").value.trim();
+  if (!url) return;
+  if (!/^https?:\/\//i.test(url)) { toast("Enter a full http(s) link.", true); return; }
+  loadFromUrl(url);
+});
 
 $("export-btn").addEventListener("click", exportPdf);
 $("cancel-btn").addEventListener("click", () => { state.cancel = true; });
