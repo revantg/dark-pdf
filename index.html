@@ -1,0 +1,778 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>dark-pdf — read papers at night</title>
+<meta name="description" content="Convert any PDF to a dark-mode version in your browser, reproducing alphaXiv's exact night-reading filter. 100% local — files never leave your device." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg: #0a0c10;
+    --surface: #10141b;
+    --surface-2: #161b24;
+    --border: #232a36;
+    --border-strong: #303948;
+    --text: #e7ecf3;
+    --text-dim: #9aa6b6;
+    --text-faint: #64707f;
+    --accent: #3b6ae0;
+    --accent-hover: #4f7bef;
+    --accent-soft: rgba(59, 106, 224, 0.14);
+    --danger: #e05b5b;
+    --ok: #3fb98a;
+    --radius: 12px;
+    --radius-sm: 8px;
+    --shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+    --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.55);
+    --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    --sans: "Inter", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { color: var(--accent-hover); }
+
+  /* Header */
+  header {
+    height: 56px;
+    flex: 0 0 56px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 20px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(10, 12, 16, 0.8);
+    backdrop-filter: blur(8px);
+    position: sticky;
+    top: 0;
+    z-index: 20;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; letter-spacing: -0.01em; }
+  .logo {
+    width: 26px; height: 26px; border-radius: 7px;
+    background: linear-gradient(135deg, #e7ecf3 0%, #e7ecf3 49.9%, #1d1d1d 50.1%, #1d1d1d 100%);
+    border: 1px solid var(--border-strong);
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.04);
+  }
+  .brand small { color: var(--text-faint); font-weight: 500; font-family: var(--mono); font-size: 11px; }
+  .header-right { display: flex; align-items: center; gap: 14px; }
+  .privacy-badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 12px; color: var(--text-dim);
+    background: var(--surface-2); border: 1px solid var(--border);
+    padding: 5px 10px; border-radius: 999px;
+  }
+  .privacy-badge .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+  .ghlink { display: inline-flex; align-items: center; gap: 6px; color: var(--text-dim); font-size: 13px; }
+  .ghlink:hover { color: var(--text); }
+
+  /* Layout */
+  main { flex: 1 1 auto; display: grid; grid-template-columns: 1fr 360px; min-height: 0; }
+  .preview-pane {
+    position: relative; overflow: auto; padding: 28px;
+    background:
+      radial-gradient(1200px 400px at 50% -10%, rgba(59,106,224,0.06), transparent 60%),
+      var(--bg);
+  }
+  .controls-pane {
+    border-left: 1px solid var(--border);
+    background: var(--surface);
+    overflow-y: auto;
+    padding: 20px 18px 24px;
+  }
+
+  /* Dropzone / empty state */
+  .dropzone {
+    min-height: 100%;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    text-align: center; gap: 18px;
+    border: 1.5px dashed var(--border-strong); border-radius: 16px;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .dropzone.dragover { border-color: var(--accent); background: var(--accent-soft); }
+  .dropzone .big-icon {
+    width: 64px; height: 80px; border-radius: 8px; position: relative;
+    background: linear-gradient(180deg, #e7ecf3, #cdd5e0);
+    box-shadow: var(--shadow);
+    transform: rotate(-4deg);
+  }
+  .dropzone .big-icon::after {
+    content: ""; position: absolute; inset: 8px; border-radius: 4px;
+    background: repeating-linear-gradient(180deg, #33roman 0, #333 0);
+    background:
+      linear-gradient(180deg, transparent 0 6px, #2a2f38 6px 8px, transparent 8px 16px, #2a2f38 16px 18px, transparent 18px 30px, #2a2f38 30px 32px, transparent 32px);
+    filter: invert(88.8%) hue-rotate(180deg);
+  }
+  .dropzone h1 { font-size: 22px; margin: 0; letter-spacing: -0.02em; }
+  .dropzone p { margin: 0; color: var(--text-dim); max-width: 380px; }
+  .dz-actions { display: flex; gap: 10px; margin-top: 4px; }
+
+  /* Buttons */
+  .btn {
+    font-family: var(--sans); font-size: 13px; font-weight: 600;
+    padding: 9px 16px; border-radius: var(--radius-sm);
+    border: 1px solid var(--border-strong); background: var(--surface-2); color: var(--text);
+    cursor: pointer; transition: background 0.12s, border-color 0.12s, transform 0.05s;
+    display: inline-flex; align-items: center; gap: 8px;
+  }
+  .btn:hover { background: #1c222c; border-color: var(--border-strong); }
+  .btn:active { transform: translateY(1px); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.primary:hover { background: var(--accent-hover); }
+  .btn.primary:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn.ghost { background: transparent; }
+
+  /* Preview cards */
+  .pages { display: flex; flex-direction: column; align-items: center; gap: 22px; }
+  .pages.hidden { display: none; }
+  .page-card {
+    background: #1d1d1d; border-radius: 6px; box-shadow: var(--shadow-lg);
+    border: 1px solid var(--border);
+    position: relative; overflow: hidden; max-width: 100%;
+  }
+  .page-card canvas { display: block; width: 100%; height: auto; }
+  .page-card .badge {
+    position: absolute; top: 8px; left: 8px; z-index: 2;
+    font-family: var(--mono); font-size: 10px; color: var(--text-dim);
+    background: rgba(0,0,0,0.55); padding: 2px 7px; border-radius: 5px;
+    backdrop-filter: blur(4px);
+  }
+  /* split compare on page 1 */
+  .page-card.split .under { position: absolute; inset: 0; }
+  .page-card.split .over { position: absolute; inset: 0; clip-path: inset(0 0 0 var(--split, 50%)); }
+  .split-handle {
+    position: absolute; top: 0; bottom: 0; left: var(--split, 50%); width: 2px; z-index: 3;
+    background: var(--accent); cursor: ew-resize;
+  }
+  .split-handle::after {
+    content: "⟷"; position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+    width: 26px; height: 26px; border-radius: 50%; background: var(--accent); color: #fff;
+    display: flex; align-items: center; justify-content: center; font-size: 13px;
+  }
+
+  /* Controls */
+  .panel-section { padding: 6px 4px 18px; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+  .panel-section:last-of-type { border-bottom: none; }
+  .panel-title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-faint); margin: 0 0 12px; font-weight: 600; }
+
+  .file-chip {
+    display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm);
+    font-size: 13px; margin-bottom: 14px;
+  }
+  .file-chip .fname { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+  .file-chip .fmeta { color: var(--text-faint); font-family: var(--mono); font-size: 11px; }
+  .file-chip .x { cursor: pointer; color: var(--text-faint); padding: 2px 4px; }
+  .file-chip .x:hover { color: var(--danger); }
+
+  .presets { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
+  .preset {
+    font-size: 12px; padding: 6px 11px; border-radius: 999px; cursor: pointer;
+    border: 1px solid var(--border); background: var(--surface-2); color: var(--text-dim);
+    transition: all 0.12s;
+  }
+  .preset:hover { color: var(--text); border-color: var(--border-strong); }
+  .preset.active { background: var(--accent-soft); border-color: var(--accent); color: var(--text); }
+
+  .control { margin-bottom: 16px; }
+  .control-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 7px; }
+  .control-head label { font-size: 13px; font-weight: 500; }
+  .control-head .val {
+    font-family: var(--mono); font-size: 12px; color: var(--text);
+    background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: 6px; padding: 2px 7px; min-width: 54px; text-align: right;
+    -webkit-appearance: none; appearance: none;
+  }
+  input[type="range"] {
+    -webkit-appearance: none; appearance: none; width: 100%; height: 4px;
+    background: var(--border-strong); border-radius: 999px; outline: none; margin: 6px 0;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%;
+    background: var(--text); border: 3px solid var(--accent); cursor: pointer;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.5); transition: transform 0.1s;
+  }
+  input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.15); }
+  input[type="range"]::-moz-range-thumb {
+    width: 16px; height: 16px; border-radius: 50%;
+    background: var(--text); border: 3px solid var(--accent); cursor: pointer;
+  }
+  .hint { font-size: 11px; color: var(--text-faint); margin-top: 4px; }
+
+  .segmented { display: flex; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 3px; gap: 3px; }
+  .segmented button {
+    flex: 1; font-family: var(--mono); font-size: 12px; padding: 6px 0; border: none; border-radius: 6px;
+    background: transparent; color: var(--text-dim); cursor: pointer; transition: all 0.12s;
+  }
+  .segmented button.active { background: var(--accent); color: #fff; }
+
+  .row { display: flex; gap: 10px; }
+  .row > * { flex: 1; }
+  .reset-btn { width: 100%; justify-content: center; margin-top: 4px; }
+
+  /* Toggle for before/after */
+  .compare-toggle { display: flex; background: var(--surface-2); border: 1px solid var(--border); border-radius: 999px; padding: 3px; margin: 0 auto 20px; width: fit-content; position: sticky; top: 0; z-index: 5; }
+  .compare-toggle.hidden { display: none; }
+  .compare-toggle button { font-size: 12px; padding: 6px 16px; border: none; border-radius: 999px; background: transparent; color: var(--text-dim); cursor: pointer; font-weight: 500; }
+  .compare-toggle button.active { background: var(--accent); color: #fff; }
+
+  /* Export footer */
+  .export-bar {
+    flex: 0 0 auto; border-top: 1px solid var(--border); background: var(--surface);
+    padding: 12px 18px; display: flex; align-items: center; gap: 14px;
+  }
+  .export-summary { font-family: var(--mono); font-size: 11px; color: var(--text-faint); flex: 1; line-height: 1.6; }
+  .export-summary b { color: var(--text-dim); font-weight: 500; }
+  .progress-wrap { flex: 1; display: none; align-items: center; gap: 12px; }
+  .progress-wrap.on { display: flex; }
+  .progress-track { flex: 1; height: 6px; background: var(--surface-2); border-radius: 999px; overflow: hidden; border: 1px solid var(--border); }
+  .progress-fill { height: 100%; width: 0%; background: var(--accent); transition: width 0.15s; }
+  .progress-label { font-family: var(--mono); font-size: 11px; color: var(--text-dim); white-space: nowrap; }
+
+  footer.credit {
+    text-align: center; padding: 14px; font-size: 12px; color: var(--text-faint);
+    border-top: 1px solid var(--border); background: var(--bg);
+  }
+  footer.credit a { color: var(--text-dim); }
+  footer.credit a:hover { color: var(--accent); }
+
+  /* Loading + toast */
+  .loading-overlay {
+    position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
+    flex-direction: column; gap: 14px; background: rgba(10,12,16,0.7); backdrop-filter: blur(3px); z-index: 10;
+  }
+  .loading-overlay.on { display: flex; }
+  .spinner { width: 34px; height: 34px; border: 3px solid var(--border-strong); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading-overlay .lbl { font-family: var(--mono); font-size: 12px; color: var(--text-dim); }
+
+  .toast {
+    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%) translateY(20px);
+    background: var(--surface-2); border: 1px solid var(--border-strong); color: var(--text);
+    padding: 11px 16px; border-radius: var(--radius-sm); box-shadow: var(--shadow-lg);
+    font-size: 13px; opacity: 0; pointer-events: none; transition: all 0.25s; z-index: 50;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  .toast.err { border-color: var(--danger); }
+
+  .disabled-panel { opacity: 0.4; pointer-events: none; filter: saturate(0.6); }
+
+  @media (max-width: 860px) {
+    main { grid-template-columns: 1fr; }
+    .controls-pane { border-left: none; border-top: 1px solid var(--border); max-height: none; }
+    .brand small { display: none; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <span class="logo"></span>
+    <span>dark-pdf <small>night reader</small></span>
+  </div>
+  <div class="header-right">
+    <span class="privacy-badge"><span class="dot"></span> 100% local · nothing uploaded</span>
+    <a class="ghlink" id="repo-link" href="#" target="_blank" rel="noopener" aria-label="GitHub repository">
+      <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      <span>GitHub</span>
+    </a>
+  </div>
+</header>
+
+<main>
+  <section class="preview-pane" id="preview-pane">
+    <div class="loading-overlay" id="loading"><div class="spinner"></div><div class="lbl" id="loading-lbl">Rendering…</div></div>
+
+    <div class="compare-toggle hidden" id="compare-toggle" role="tablist" aria-label="Compare original and dark">
+      <button data-mode="dark" class="active">Dark</button>
+      <button data-mode="original">Original</button>
+      <button data-mode="split">Split</button>
+    </div>
+
+    <div class="dropzone" id="dropzone" tabindex="0" role="button" aria-label="Upload a PDF">
+      <div class="big-icon" aria-hidden="true"></div>
+      <div>
+        <h1>Turn any PDF dark</h1>
+        <p>Reproduce alphaXiv's exact night-reading filter. Drag a PDF here — it's processed entirely in your browser and never uploaded.</p>
+      </div>
+      <div class="dz-actions">
+        <button class="btn primary" id="pick-btn">Choose PDF</button>
+        <button class="btn ghost" id="sample-btn">Try a sample paper</button>
+      </div>
+      <input type="file" id="file-input" accept="application/pdf,.pdf" hidden />
+    </div>
+
+    <div class="pages hidden" id="pages"></div>
+  </section>
+
+  <aside class="controls-pane" id="controls">
+    <div id="file-info"></div>
+
+    <div class="panel-section">
+      <p class="panel-title">Presets</p>
+      <div class="presets" id="presets">
+        <span class="preset active" data-preset="alphaxiv">alphaXiv</span>
+        <span class="preset" data-preset="pureblack">Pure black</span>
+        <span class="preset" data-preset="sepia">Sepia night</span>
+      </div>
+    </div>
+
+    <div class="panel-section" id="param-panel">
+      <p class="panel-title">Filter</p>
+
+      <div class="control">
+        <div class="control-head">
+          <label for="invert">Invert</label>
+          <input class="val" id="invert-val" type="text" inputmode="decimal" value="0.888" aria-label="Invert amount" />
+        </div>
+        <input type="range" id="invert" min="0" max="1" step="0.001" value="0.888" />
+        <div class="hint">How far white flips toward dark. alphaXiv uses 0.888.</div>
+      </div>
+
+      <div class="control">
+        <div class="control-head">
+          <label for="hue">Hue rotate</label>
+          <input class="val" id="hue-val" type="text" inputmode="numeric" value="180°" aria-label="Hue rotate degrees" />
+        </div>
+        <input type="range" id="hue" min="0" max="360" step="1" value="180" />
+        <div class="hint">180° cancels invert's hue flip so figures stay natural.</div>
+      </div>
+
+      <div class="control">
+        <div class="control-head">
+          <label for="contrast">Contrast</label>
+          <input class="val" id="contrast-val" type="text" inputmode="decimal" value="1.00" aria-label="Contrast multiplier" />
+        </div>
+        <input type="range" id="contrast" min="0.5" max="2" step="0.01" value="1" />
+        <div class="hint">1.00 matches alphaXiv (no change).</div>
+      </div>
+
+      <button class="btn reset-btn" id="reset-btn">↺ Reset to alphaXiv defaults</button>
+    </div>
+
+    <div class="panel-section">
+      <p class="panel-title">Output quality</p>
+      <div class="control">
+        <div class="control-head"><label>Resolution</label></div>
+        <div class="segmented" id="dpi-seg">
+          <button data-scale="1">1×</button>
+          <button data-scale="2" class="active">2×</button>
+          <button data-scale="3">3×</button>
+        </div>
+        <div class="hint">Higher = sharper &amp; larger file. 2× ≈ 150 DPI.</div>
+      </div>
+      <div class="control">
+        <div class="control-head">
+          <label for="quality">JPEG quality</label>
+          <input class="val" id="quality-val" type="text" inputmode="numeric" value="80" aria-label="JPEG quality" />
+        </div>
+        <input type="range" id="quality" min="0" max="100" step="1" value="80" />
+        <div class="hint">0 = lossless PNG (much larger).</div>
+      </div>
+    </div>
+  </aside>
+</main>
+
+<div class="export-bar">
+  <div class="export-summary" id="export-summary">
+    Load a PDF to begin. <b>Everything runs locally.</b>
+  </div>
+  <div class="progress-wrap" id="progress-wrap">
+    <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
+    <span class="progress-label" id="progress-label">Baking…</span>
+    <button class="btn ghost" id="cancel-btn">Cancel</button>
+  </div>
+  <button class="btn primary" id="export-btn" disabled>↓ Download dark PDF</button>
+</div>
+
+<footer class="credit">
+  Reproduces the <a href="https://www.alphaxiv.org" target="_blank" rel="noopener">alphaXiv</a> dark filter
+  <span style="font-family:var(--mono)">invert(88.8%) hue-rotate(180deg) contrast()</span> ·
+  100% client-side · <a id="repo-link-2" href="#" target="_blank" rel="noopener">source on GitHub</a>
+</footer>
+
+<div class="toast" id="toast"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.min.mjs" type="module"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script type="module">
+import * as pdfjsLib from "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.min.mjs";
+pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.worker.min.mjs";
+
+const REPO_URL = "https://github.com/revantg/dark-pdf";
+const SAMPLE_URL = "https://pdfs.assets.alphaxiv.org/2604.09277v1.pdf";
+const PREVIEW_PAGES = 3;
+
+const DEFAULTS = { invert: 0.888, hue: 180, contrast: 1.0, scale: 2, quality: 80 };
+const PRESETS = {
+  alphaxiv:  { invert: 0.888, hue: 180, contrast: 1.0 },
+  pureblack: { invert: 1.0,   hue: 180, contrast: 1.05 },
+  sepia:     { invert: 0.85,  hue: 200, contrast: 0.95 },
+};
+
+const state = { ...DEFAULTS, doc: null, fileName: "", numPages: 0, compare: "dark", busy: false, cancel: false };
+
+const $ = (id) => document.getElementById(id);
+document.querySelectorAll("#repo-link, #repo-link-2").forEach(a => a.href = REPO_URL);
+
+// ---- filter string: the ONE source of truth for preview AND export ----
+function filterString(s = state) {
+  return `invert(${s.invert}) hue-rotate(${s.hue}deg) contrast(${s.contrast})`;
+}
+
+// ---- toast ----
+let toastTimer;
+function toast(msg, isErr = false) {
+  const t = $("toast");
+  t.textContent = msg;
+  t.classList.toggle("err", isErr);
+  t.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove("show"), 3200);
+}
+
+// ---- render preview pages (baked with canvas ctx.filter so preview == export) ----
+let renderToken = 0;
+async function renderPreview() {
+  if (!state.doc) return;
+  const token = ++renderToken;
+  const pagesEl = $("pages");
+  const count = Math.min(PREVIEW_PAGES, state.numPages);
+  showLoading(true, "Rendering…");
+
+  // build/refresh cards
+  pagesEl.innerHTML = "";
+  for (let i = 1; i <= count; i++) {
+    if (token !== renderToken) return;
+    const page = await state.doc.getPage(i);
+    const viewport = page.getViewport({ scale: 1.4 });
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+    const card = document.createElement("div");
+    card.className = "page-card" + (i === 1 && state.compare === "split" ? " split" : "");
+    const badge = document.createElement("div");
+    badge.className = "badge";
+    badge.textContent = `p.${i}`;
+    card.appendChild(badge);
+
+    // main (dark) canvas
+    const canvas = document.createElement("canvas");
+    canvas.width = viewport.width * dpr;
+    canvas.height = viewport.height * dpr;
+    const ctx = canvas.getContext("2d");
+    ctx.scale(dpr, dpr);
+    // white bg first (matches alphaXiv white page under the filter)
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, viewport.width, viewport.height);
+    await page.render({ canvasContext: ctx, viewport }).promise;
+    if (token !== renderToken) return;
+
+    if (state.compare === "original") {
+      canvas.style.filter = "none";
+      card.appendChild(canvas);
+    } else if (state.compare === "split" && i === 1) {
+      // under = original, over = dark, clip on drag
+      const orig = canvas;
+      orig.className = "under";
+      const dark = canvas.cloneNode(true);
+      dark.getContext("2d").drawImage(canvas, 0, 0, canvas.width, canvas.height);
+      dark.className = "over";
+      dark.style.filter = filterString();
+      card.style.position = "relative";
+      card.appendChild(orig);
+      card.appendChild(dark);
+      const handle = document.createElement("div");
+      handle.className = "split-handle";
+      card.style.setProperty("--split", "50%");
+      card.appendChild(handle);
+      enableSplit(card, handle);
+    } else {
+      canvas.style.filter = filterString();
+      card.appendChild(canvas);
+    }
+    pagesEl.appendChild(card);
+  }
+  if (token === renderToken) showLoading(false);
+}
+
+function enableSplit(card, handle) {
+  const move = (clientX) => {
+    const r = card.getBoundingClientRect();
+    let pct = ((clientX - r.left) / r.width) * 100;
+    pct = Math.max(0, Math.min(100, pct));
+    card.style.setProperty("--split", pct + "%");
+  };
+  const down = (e) => {
+    e.preventDefault();
+    const mv = (ev) => move((ev.touches ? ev.touches[0] : ev).clientX);
+    const up = () => { window.removeEventListener("mousemove", mv); window.removeEventListener("mouseup", up); window.removeEventListener("touchmove", mv); window.removeEventListener("touchend", up); };
+    window.addEventListener("mousemove", mv); window.addEventListener("mouseup", up);
+    window.addEventListener("touchmove", mv); window.addEventListener("touchend", up);
+  };
+  handle.addEventListener("mousedown", down);
+  handle.addEventListener("touchstart", down);
+}
+
+// Fast path: when only filter params change, just restyle existing canvases (instant, no re-render)
+function applyFilterFast() {
+  if (state.compare === "split") { renderPreview(); return; }
+  const fs = state.compare === "original" ? "none" : filterString();
+  document.querySelectorAll("#pages canvas").forEach(c => { c.style.filter = fs; });
+}
+
+// ---- loading / summary ----
+function showLoading(on, label = "Rendering…") {
+  $("loading").classList.toggle("on", on);
+  $("loading-lbl").textContent = label;
+}
+function updateSummary() {
+  if (!state.doc) return;
+  const est = estimateSize();
+  $("export-summary").innerHTML =
+    `<b>${state.numPages}</b> pages · <b>${state.scale}×</b> · JPEG <b>${state.quality || "lossless"}</b> · ~<b>${est}</b> · <b>local only</b>`;
+}
+function estimateSize() {
+  // rough heuristic: per-page bytes scale with scale^2 and quality
+  const perPage = (state.scale * state.scale) * (state.quality ? (0.02 + state.quality / 100 * 0.14) : 0.5);
+  const mb = perPage * state.numPages;
+  return mb < 1 ? Math.round(mb * 1024) + " KB" : mb.toFixed(1) + " MB";
+}
+
+// ---- load a PDF from ArrayBuffer ----
+async function loadPdf(buf, name) {
+  try {
+    showLoading(true, "Parsing PDF…");
+    const doc = await pdfjsLib.getDocument({ data: buf }).promise;
+    state.doc = doc; state.numPages = doc.numPages; state.fileName = name;
+    $("dropzone").style.display = "none";
+    $("pages").classList.remove("hidden");
+    $("compare-toggle").classList.remove("hidden");
+    $("export-btn").disabled = false;
+    renderFileInfo(name, buf.byteLength);
+    updateSummary();
+    await renderPreview();
+  } catch (e) {
+    console.error(e);
+    showLoading(false);
+    toast("Couldn't open that file — is it a valid PDF?", true);
+  }
+}
+function renderFileInfo(name, bytes) {
+  const kb = bytes > 1048576 ? (bytes / 1048576).toFixed(1) + " MB" : Math.round(bytes / 1024) + " KB";
+  $("file-info").innerHTML =
+    `<div class="file-chip"><span class="fname">${name}</span><span class="fmeta">${state.numPages}p · ${kb}</span><span class="x" id="clear-file" title="Remove">✕</span></div>`;
+  $("clear-file").onclick = resetAll;
+}
+function resetAll() {
+  state.doc = null; state.numPages = 0;
+  $("dropzone").style.display = "flex";
+  $("pages").classList.add("hidden");
+  $("pages").innerHTML = "";
+  $("compare-toggle").classList.add("hidden");
+  $("export-btn").disabled = true;
+  $("file-info").innerHTML = "";
+  $("export-summary").innerHTML = "Load a PDF to begin. <b>Everything runs locally.</b>";
+}
+
+// ---- file intake ----
+function handleFile(file) {
+  if (!file) return;
+  if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
+    toast("That's not a PDF.", true); return;
+  }
+  if (file.size > 100 * 1048576) toast("Large file — this may take a moment.", false);
+  const reader = new FileReader();
+  reader.onload = () => loadPdf(reader.result, file.name);
+  reader.onerror = () => toast("Failed to read file.", true);
+  reader.readAsArrayBuffer(file);
+}
+
+// ---- export: bake each page at full scale with the same filter ----
+async function exportPdf() {
+  if (!state.doc || state.busy) return;
+  state.busy = true; state.cancel = false;
+  $("export-btn").disabled = true;
+  $("export-summary").style.display = "none";
+  $("progress-wrap").classList.add("on");
+  const { jsPDF } = window.jspdf;
+  let pdf = null;
+
+  try {
+    for (let i = 1; i <= state.numPages; i++) {
+      if (state.cancel) break;
+      setProgress(i, state.numPages, `Baking page ${i}/${state.numPages}`);
+      const page = await state.doc.getPage(i);
+      const viewport = page.getViewport({ scale: state.scale * 1.5 }); // 1.5 ≈ 108dpi base; scale multiplies
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.floor(viewport.width);
+      canvas.height = Math.floor(viewport.height);
+      const ctx = canvas.getContext("2d");
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      await page.render({ canvasContext: ctx, viewport }).promise;
+
+      // bake the filter into pixels
+      ctx.filter = filterString();
+      ctx.drawImage(canvas, 0, 0);
+      ctx.filter = "none";
+
+      const isJpeg = state.quality > 0;
+      const mime = isJpeg ? "image/jpeg" : "image/png";
+      const data = canvas.toDataURL(mime, isJpeg ? state.quality / 100 : undefined);
+
+      const ptW = page.getViewport({ scale: 1 }).width;
+      const ptH = page.getViewport({ scale: 1 }).height;
+      const orient = ptW > ptH ? "l" : "p";
+      if (!pdf) pdf = new jsPDF({ orientation: orient, unit: "pt", format: [ptW, ptH] });
+      else pdf.addPage([ptW, ptH], orient);
+      pdf.addImage(data, isJpeg ? "JPEG" : "PNG", 0, 0, ptW, ptH);
+
+      await new Promise(r => requestAnimationFrame(r)); // yield to UI
+    }
+    if (!state.cancel && pdf) {
+      const outName = state.fileName.replace(/\.pdf$/i, "") + ".dark.pdf";
+      pdf.save(outName);
+      toast("Saved " + outName);
+    } else if (state.cancel) {
+      toast("Export cancelled.");
+    }
+  } catch (e) {
+    console.error(e);
+    toast("Export failed — try a lower resolution.", true);
+  } finally {
+    state.busy = false;
+    $("progress-wrap").classList.remove("on");
+    $("export-summary").style.display = "";
+    $("export-btn").disabled = false;
+    updateSummary();
+  }
+}
+function setProgress(i, n, label) {
+  $("progress-fill").style.width = (i / n * 100) + "%";
+  $("progress-label").textContent = label;
+}
+
+// ---- controls wiring ----
+let debounceTimer;
+function onFilterChange(fast = true) {
+  markPresetActive();
+  updateSummary();
+  if (fast) {
+    applyFilterFast(); // instant CSS restyle
+  } else {
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(renderPreview, 250);
+  }
+}
+
+function bindSlider(id, key, fmt, parse) {
+  const slider = $(id), box = $(id + "-val");
+  slider.addEventListener("input", () => {
+    state[key] = parseFloat(slider.value);
+    box.value = fmt(state[key]);
+    onFilterChange(true);
+  });
+  box.addEventListener("change", () => {
+    let v = parse(box.value);
+    if (isNaN(v)) { box.value = fmt(state[key]); return; }
+    v = Math.max(parseFloat(slider.min), Math.min(parseFloat(slider.max), v));
+    state[key] = v; slider.value = v; box.value = fmt(v);
+    onFilterChange(true);
+  });
+}
+bindSlider("invert", "invert", v => v.toFixed(3), s => parseFloat(s));
+bindSlider("hue", "hue", v => Math.round(v) + "°", s => parseFloat(s));
+bindSlider("contrast", "contrast", v => v.toFixed(2), s => parseFloat(s));
+bindSlider("quality", "quality", v => String(Math.round(v)), s => parseFloat(s));
+
+function setControls(p) {
+  for (const k of ["invert", "hue", "contrast"]) {
+    if (p[k] === undefined) continue;
+    state[k] = p[k];
+    $(k).value = p[k];
+  }
+  $("invert-val").value = state.invert.toFixed(3);
+  $("hue-val").value = Math.round(state.hue) + "°";
+  $("contrast-val").value = state.contrast.toFixed(2);
+}
+function markPresetActive() {
+  let match = null;
+  for (const [name, p] of Object.entries(PRESETS)) {
+    if (Math.abs(p.invert - state.invert) < 1e-6 && p.hue === state.hue && Math.abs(p.contrast - state.contrast) < 1e-6) match = name;
+  }
+  document.querySelectorAll(".preset").forEach(el => el.classList.toggle("active", el.dataset.preset === match));
+}
+
+$("presets").addEventListener("click", (e) => {
+  const el = e.target.closest(".preset"); if (!el) return;
+  setControls(PRESETS[el.dataset.preset]);
+  onFilterChange(true);
+});
+$("reset-btn").addEventListener("click", () => { setControls(DEFAULTS); onFilterChange(true); toast("Reset to alphaXiv defaults"); });
+$("dpi-seg").addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  document.querySelectorAll("#dpi-seg button").forEach(x => x.classList.remove("active"));
+  b.classList.add("active");
+  state.scale = parseInt(b.dataset.scale, 10);
+  updateSummary();
+});
+$("compare-toggle").addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  document.querySelectorAll("#compare-toggle button").forEach(x => x.classList.remove("active"));
+  b.classList.add("active");
+  state.compare = b.dataset.mode;
+  if (state.compare === "split") renderPreview(); else applyFilterFast();
+});
+
+// dropzone + picker
+const dz = $("dropzone"), fi = $("file-input");
+$("pick-btn").onclick = () => fi.click();
+dz.onclick = (e) => { if (e.target.closest("button")) return; fi.click(); };
+dz.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fi.click(); } };
+fi.onchange = () => handleFile(fi.files[0]);
+["dragover", "dragenter"].forEach(ev => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.add("dragover"); }));
+["dragleave", "drop"].forEach(ev => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.remove("dragover"); }));
+// allow dropping anywhere on preview pane
+const pp = $("preview-pane");
+["dragover", "dragenter"].forEach(ev => pp.addEventListener(ev, (e) => e.preventDefault()));
+pp.addEventListener("drop", (e) => { e.preventDefault(); dz.classList.remove("dragover"); if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]); });
+
+$("sample-btn").onclick = async () => {
+  try {
+    showLoading(true, "Fetching sample…");
+    const res = await fetch(SAMPLE_URL);
+    if (!res.ok) throw new Error("fetch failed");
+    const buf = await res.arrayBuffer();
+    await loadPdf(buf, "2604.09277v1.pdf");
+  } catch (e) {
+    showLoading(false);
+    toast("Couldn't fetch the sample (network/CORS). Try your own PDF.", true);
+  }
+};
+
+$("export-btn").addEventListener("click", exportPdf);
+$("cancel-btn").addEventListener("click", () => { state.cancel = true; });
+
+// keyboard: 'o' open, 'd' download
+window.addEventListener("keydown", (e) => {
+  if (e.target.matches("input, textarea")) return;
+  if (e.key === "o") fi.click();
+  if (e.key === "d" && !$("export-btn").disabled) exportPdf();
+});
+</script>
+</body>
+</html>
