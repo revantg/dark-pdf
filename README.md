@@ -1,45 +1,75 @@
 # dark-pdf
 
-Turn any PDF into a dark-mode version, right in your browser — reproducing
-[alphaXiv](https://www.alphaxiv.org)'s exact night-reading filter.
+Turn any PDF into a real dark-mode PDF, right in your browser — using
+[alphaXiv](https://www.alphaxiv.org)'s night-reading colour maths, but written
+into the file instead of painted over it.
 
 **Live:** https://revantg.github.io/dark-pdf/
 
 ## What it does
 
-alphaXiv serves normal white PDFs and renders them with PDF.js, then applies
-this CSS to each page in dark mode:
+alphaXiv serves normal white PDFs, renders them with PDF.js, and applies this
+CSS to each page in dark mode:
 
 ```css
 filter: invert(88.8%) hue-rotate(180deg) contrast();
 ```
 
-White backgrounds become dark gray (`#1d1d1d`), black text becomes light, and
-figures keep their real colors because `hue-rotate(180deg)` cancels the hue
-flip that `invert` introduces.
+White backgrounds become dark gray, black text becomes light, and figures keep
+their real colours because `hue-rotate(180deg)` cancels the hue flip that
+`invert` introduces.
 
-This tool applies the same filter to a PDF **you** open, previews the pages
-live, and lets you read in dark mode — all client-side.
+That filter is a *view-only* effect — it lives in the browser and disappears the
+moment you download the file. This tool takes the same colour maths and applies
+it to the **PDF itself**, so the file you save is genuinely dark and opens dark
+anywhere: Preview, Acrobat, your e-reader.
+
+Crucially it is **not** a screenshot. Text stays real text and images stay real
+images.
 
 ## Features
 
-- **Live preview** of the first 3 pages, updating instantly as you tweak.
+- **Real dark PDF out** — not a stack of flattened page images.
+- **Text stays selectable**, searchable and copyable.
+- **Images are untouched** — figures and photos are never re-encoded.
+- **Live preview** of the first 3 pages, rendered from the actual output bytes.
 - **Tweakable** invert / hue-rotate / contrast.
 - **Presets:** alphaXiv, Pure black, Sepia night.
 - **Before / after** toggle and split-slider compare.
-- **Download keeps the original** — real text, selectable content, vector
-  figures and diagrams are all preserved, exactly like alphaXiv.
 - **100% local** — files never leave your browser; there is no server.
 
 ## How it works
 
-Dark mode is a **view-only CSS filter** applied to each rendered page
-(`.page { filter: invert(88.8%) hue-rotate(180deg) }`) — the same approach
-alphaXiv uses. The filter is a display effect only; it is never baked into the
-file. When you hit **Download**, you get the **original PDF untouched**, so
-text, diagrams and vectors stay intact rather than being flattened to images.
-Built with vanilla HTML/CSS/JS + [PDF.js](https://mozilla.github.io/pdf.js/)
-from a CDN — no build step.
+The transform happens at the PDF **content-stream** level, using
+[pdf-lib](https://pdf-lib.js.org/):
+
+1. **Recolour the drawing operators.** Every page's content stream is tokenised
+   and the fill/stroke colour operators (`g`/`G`, `rg`/`RG`, `k`/`K`, plus
+   device-space `sc`/`scn`) are rewritten through the same invert + hue-rotate
+   matrix the CSS filter uses. The tokeniser skips `(…)` and `<…>` strings,
+   comments and `BI…ID…EI` inline image data, and round-trips bytes as latin1,
+   so binary content is never corrupted.
+2. **Add a dark background.** A dark rectangle is inserted *underneath* the
+   existing content (via `wrapContentStreams`), and the transformed default
+   colour is set up front so text that relies on the default black graphics
+   state still comes out light.
+
+Text-drawing operators and image XObjects are left completely alone — that is
+why text stays selectable and figures survive byte-for-byte.
+
+The preview renders the **transformed bytes**, so what you see is exactly what
+downloads. Built with vanilla HTML/CSS/JS +
+[PDF.js](https://mozilla.github.io/pdf.js/) and
+[pdf-lib](https://pdf-lib.js.org/) from a CDN — no build step.
+
+### Limitations
+
+Colour lives in more places than page content streams. This tool does not
+recolour raster images (by design), nor colours inside patterns, shadings,
+ExtGState, Form XObjects or annotation appearance streams. Non-device colour
+spaces (Indexed, Separation, ICCBased, DeviceN) are deliberately left alone,
+since inverting their operands numerically would produce wrong colours. Expect
+the occasional element to stay light on heavily designed PDFs.
 
 ## Command-line skill
 

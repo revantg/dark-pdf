@@ -155,6 +155,19 @@
     position: relative; overflow: hidden; max-width: 100%;
   }
   .page-card canvas { display: block; width: 100%; height: auto; }
+  /* page wrapper: the filter lives here so canvas AND text layer transform together (alphaXiv does the same) */
+  .page-layer { position: relative; display: block; }
+  .textLayer {
+    position: absolute; inset: 0; overflow: hidden; line-height: 1;
+    opacity: 1; forced-color-adjust: none; transform-origin: 0 0;
+    text-size-adjust: none; z-index: 2;
+  }
+  .textLayer span, .textLayer br {
+    color: transparent; position: absolute; white-space: pre;
+    cursor: text; transform-origin: 0% 0%;
+  }
+  .textLayer ::selection { background: rgba(96,165,250,0.45); }
+  .textLayer br::selection { background: transparent; }
   .page-card .badge {
     position: absolute; top: 8px; left: 8px; z-index: 2;
     font-family: var(--mono); font-size: 10px; color: var(--text-dim);
@@ -387,10 +400,12 @@
 <div class="toast" id="toast"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.min.mjs" type="module"></script>
+<script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
 <script type="module">
 import * as pdfjsLib from "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.min.mjs";
+import { darkenPdf } from "./darken.js";
 pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.worker.min.mjs";
-
+const { renderTextLayer } = pdfjsLib;
 const REPO_URL = "https://github.com/revantg/dark-pdf";
 const SAMPLE_URL = "https://mozilla.github.io/pdf.js/web/compressed.tracemonkey-pldi-09.pdf";
 const PREVIEW_PAGES = 3;
@@ -402,15 +417,17 @@ const PRESETS = {
   sepia:     { invert: 0.85,  hue: 200, contrast: 0.95 },
 };
 
-const state = { ...DEFAULTS, doc: null, rawBytes: null, fileName: "", numPages: 0, compare: "dark", busy: false };
+const state = {
+  ...DEFAULTS,
+  doc: null,          // pdf.js doc for the CURRENT preview (the darkened one)
+  rawBytes: null,     // pristine original bytes
+  darkBytes: null,    // darkened bytes — exactly what Download writes
+  fileName: "", numPages: 0, compare: "dark", busy: false,
+};
 
 const $ = (id) => document.getElementById(id);
 document.querySelectorAll("#repo-link").forEach(a => a.href = REPO_URL);
 
-// ---- filter string: the ONE source of truth for preview AND export ----
-function filterString(s = state) {
-  return `invert(${s.invert}) hue-rotate(${s.hue}deg) contrast(${s.contrast})`;
-}
 
 // ---- toast ----
 let toastTimer;
@@ -423,7 +440,39 @@ function toast(msg, isErr = false) {
   toastTimer = setTimeout(() => t.classList.remove("show"), 3200);
 }
 
-// ---- render preview pages (baked with canvas ctx.filter so preview == export) ----
+// ---- build the darkened PDF, then preview THOSE bytes ----
+// Preview and download therefore render the same document by construction.
+let buildToken = 0;
+async function rebuild() {
+  if (!state.rawBytes) return;
+  const token = ++buildToken;
+  // the old dark bytes are stale the moment a rebuild starts
+  state.darkBytes = null;
+  $("export-btn").disabled = true;
+  showLoading(true, "Applying dark mode…");
+  try {
+    const opts = { invert: state.invert, hue: state.hue, contrast: state.contrast };
+    const darkBytes = await darkenPdf(state.rawBytes, opts);
+    if (token !== buildToken) return;
+    // pdf.js detaches the buffer it is handed, so parse from a copy
+    const doc = await pdfjsLib.getDocument({ data: darkBytes.slice(0) }).promise;
+    if (token !== buildToken) { doc.destroy(); return; }
+    if (state.doc) state.doc.destroy();
+    state.doc = doc;
+    state.darkBytes = darkBytes;
+    state.numPages = doc.numPages;
+    $("export-btn").disabled = false;
+    updateSummary();
+    await renderPreview();
+  } catch (e) {
+    console.error(e);
+    showLoading(false);
+    toast("Couldn't apply dark mode to this PDF.", true);
+  }
+}
+
+// ---- render preview pages: canvas + real selectable text layer ----
+// The dark colours live in the PDF now, so no CSS filter is applied.
 let renderToken = 0;
 async function renderPreview() {
   if (!state.doc) return;
@@ -432,13 +481,13 @@ async function renderPreview() {
   const count = Math.min(PREVIEW_PAGES, state.numPages);
   showLoading(true, "Rendering…");
 
-  // build/refresh cards
+  // "Original" and "Split" compare against the untouched file
+  const origDoc = state.compare === "dark" ? null : await getOriginalDoc();
+  if (token !== renderToken) return;
+
   pagesEl.innerHTML = "";
   for (let i = 1; i <= count; i++) {
     if (token !== renderToken) return;
-    const page = await state.doc.getPage(i);
-    const viewport = page.getViewport({ scale: 1.4 });
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
 
     const card = document.createElement("div");
     card.className = "page-card" + (i === 1 && state.compare === "split" ? " split" : "");
@@ -447,44 +496,74 @@ async function renderPreview() {
     badge.textContent = `p.${i}`;
     card.appendChild(badge);
 
-    // main (dark) canvas
-    const canvas = document.createElement("canvas");
-    canvas.width = viewport.width * dpr;
-    canvas.height = viewport.height * dpr;
-    const ctx = canvas.getContext("2d");
-    ctx.scale(dpr, dpr);
-    // white bg first (matches alphaXiv white page under the filter)
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(0, 0, viewport.width, viewport.height);
-    await page.render({ canvasContext: ctx, viewport }).promise;
-    if (token !== renderToken) return;
-
-    if (state.compare === "original") {
-      canvas.style.filter = "none";
-      card.appendChild(canvas);
-    } else if (state.compare === "split" && i === 1) {
-      // under = original, over = dark, clip on drag
-      const orig = canvas;
-      orig.className = "under";
-      const dark = canvas.cloneNode(true);
-      dark.getContext("2d").drawImage(canvas, 0, 0, canvas.width, canvas.height);
-      dark.className = "over";
-      dark.style.filter = filterString();
-      card.style.position = "relative";
-      card.appendChild(orig);
-      card.appendChild(dark);
+    if (state.compare === "split" && i === 1) {
+      const under = await renderPageCanvas(origDoc, i);
+      const over = await renderPageCanvas(state.doc, i);
+      if (token !== renderToken) return;
+      under.canvas.className = "under";
+      over.canvas.className = "over";
+      card.appendChild(under.canvas);
+      card.appendChild(over.canvas);
       const handle = document.createElement("div");
       handle.className = "split-handle";
       card.style.setProperty("--split", "50%");
       card.appendChild(handle);
       enableSplit(card, handle);
     } else {
-      canvas.style.filter = filterString();
-      card.appendChild(canvas);
+      const src = state.compare === "original" ? origDoc : state.doc;
+      const { canvas, page, viewport } = await renderPageCanvas(src, i);
+      if (token !== renderToken) return;
+      const layer = document.createElement("div");
+      layer.className = "page-layer";
+      layer.style.width = viewport.width + "px";
+      layer.style.height = viewport.height + "px";
+      layer.appendChild(canvas);
+      const textLayer = document.createElement("div");
+      textLayer.className = "textLayer";
+      layer.appendChild(textLayer);
+      card.appendChild(layer);
+      await buildTextLayer(page, viewport, textLayer);
+      if (token !== renderToken) return;
     }
     pagesEl.appendChild(card);
   }
   if (token === renderToken) showLoading(false);
+}
+
+// lazily parse the pristine original, for the compare modes only
+let origDocCache = null;
+async function getOriginalDoc() {
+  if (!origDocCache) {
+    origDocCache = await pdfjsLib.getDocument({ data: state.rawBytes.slice(0) }).promise;
+  }
+  return origDocCache;
+}
+
+async function renderPageCanvas(doc, i) {
+  const page = await doc.getPage(i);
+  const viewport = page.getViewport({ scale: 1.4 });
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.floor(viewport.width * dpr);
+  canvas.height = Math.floor(viewport.height * dpr);
+  canvas.style.width = viewport.width + "px";
+  canvas.style.height = viewport.height + "px";
+  const ctx = canvas.getContext("2d");
+  ctx.scale(dpr, dpr);
+  await page.render({ canvasContext: ctx, viewport }).promise;
+  return { canvas, page, viewport };
+}
+
+// real pdf.js text layer -> transparent, selectable text on top of the canvas
+async function buildTextLayer(page, viewport, container) {
+  const textContent = await page.getTextContent();
+  container.innerHTML = "";
+  await renderTextLayer({
+    textContentSource: textContent,
+    container,
+    viewport,
+    textDivs: [],
+  }).promise;
 }
 
 function enableSplit(card, handle) {
@@ -505,12 +584,7 @@ function enableSplit(card, handle) {
   handle.addEventListener("touchstart", down);
 }
 
-// Fast path: when only filter params change, just restyle existing canvases (instant, no re-render)
-function applyFilterFast() {
-  if (state.compare === "split") { renderPreview(); return; }
-  const fs = state.compare === "original" ? "none" : filterString();
-  document.querySelectorAll("#pages canvas").forEach(c => { c.style.filter = fs; });
-}
+
 
 // ---- loading / summary ----
 function showLoading(on, label = "Rendering…") {
@@ -519,27 +593,32 @@ function showLoading(on, label = "Rendering…") {
 }
 function updateSummary() {
   if (!state.doc) return;
-  const bytes = state.rawBytes ? state.rawBytes.byteLength : 0;
+  const bytes = state.darkBytes ? state.darkBytes.byteLength : 0;
   const sz = bytes > 1048576 ? (bytes / 1048576).toFixed(1) + " MB" : Math.round(bytes / 1024) + " KB";
   $("export-summary").innerHTML =
-    `<b>${state.numPages}</b> pages · <b>${sz}</b> · original text &amp; diagrams kept · <b>local only</b>`;
+    `<b>${state.numPages}</b> pages · <b>${sz}</b> · real text &amp; images kept · <b>local only</b>`;
 }
 
 // ---- load a PDF from ArrayBuffer ----
 async function loadPdf(buf, name) {
   try {
     showLoading(true, "Parsing PDF…");
+    // drop the previous document so a failed load can't leave it on screen
+    buildToken++; renderToken++;
+    if (state.doc) { state.doc.destroy(); state.doc = null; }
+    if (origDocCache) { origDocCache.destroy(); origDocCache = null; }
+    state.darkBytes = null; state.numPages = 0;
+    $("pages").innerHTML = "";
+    $("export-btn").disabled = true;
     // keep an untouched copy of the original bytes (pdf.js detaches the buffer it's given)
     state.rawBytes = new Uint8Array(buf.slice(0));
-    const doc = await pdfjsLib.getDocument({ data: buf }).promise;
-    state.doc = doc; state.numPages = doc.numPages; state.fileName = name;
+    state.fileName = name;
     $("dropzone").style.display = "none";
     $("pages").classList.remove("hidden");
     $("compare-toggle").classList.remove("hidden");
-    $("export-btn").disabled = false;
+    await rebuild();
+    if (!state.doc) return;   // rebuild failed and already reported
     renderFileInfo(name, state.rawBytes.byteLength);
-    updateSummary();
-    await renderPreview();
   } catch (e) {
     console.error(e);
     showLoading(false);
@@ -553,7 +632,12 @@ function renderFileInfo(name, bytes) {
   $("clear-file").onclick = resetAll;
 }
 function resetAll() {
-  state.doc = null; state.numPages = 0; state.rawBytes = null;
+  // invalidate anything still in flight so it can't repopulate state after reset
+  buildToken++; renderToken++;
+  clearTimeout(debounceTimer);
+  if (state.doc) state.doc.destroy();
+  if (origDocCache) { origDocCache.destroy(); origDocCache = null; }
+  state.doc = null; state.numPages = 0; state.rawBytes = null; state.darkBytes = null;
   $("dropzone").style.display = "flex";
   $("pages").classList.add("hidden");
   $("pages").innerHTML = "";
@@ -576,24 +660,24 @@ function handleFile(file) {
   reader.readAsArrayBuffer(file);
 }
 
-// ---- export: save the ORIGINAL PDF untouched (alphaXiv behaviour) ----
-// Dark mode is a view-only CSS filter; the downloaded file keeps real text,
-// diagrams and vectors intact rather than being flattened to images.
+// ---- export: save the darkened PDF ----
+// These are the exact bytes the preview is rendering, so what you see is what
+// you get. Text stays selectable and images are untouched.
 function exportPdf() {
-  if (!state.rawBytes || state.busy) return;
+  if (!state.darkBytes || state.busy) return;
   state.busy = true;
   $("export-btn").disabled = true;
   try {
-    const blob = new Blob([state.rawBytes], { type: "application/pdf" });
+    const blob = new Blob([state.darkBytes], { type: "application/pdf" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = state.fileName && /\.pdf$/i.test(state.fileName) ? state.fileName : (state.fileName || "document") + ".pdf";
+    a.download = state.fileName.replace(/\.pdf$/i, "") + ".dark.pdf";
     document.body.appendChild(a);
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
-    toast("Saved original PDF (text & diagrams preserved)");
+    toast("Saved " + a.download);
   } catch (e) {
     console.error(e);
     toast("Download failed.", true);
@@ -605,15 +689,15 @@ function exportPdf() {
 
 // ---- controls wiring ----
 let debounceTimer;
-function onFilterChange(fast = true) {
+function onFilterChange() {
   markPresetActive();
-  updateSummary();
-  if (fast) {
-    applyFilterFast(); // instant CSS restyle
-  } else {
-    clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(renderPreview, 250);
-  }
+  // the current dark bytes are stale as soon as a control moves
+  state.darkBytes = null;
+  $("export-btn").disabled = true;
+  // the colours are baked into the PDF, so every change means a rebuild;
+  // debounce so dragging a slider doesn't queue one per pixel
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(rebuild, 220);
 }
 
 function bindSlider(id, key, fmt, parse) {
@@ -664,7 +748,7 @@ $("compare-toggle").addEventListener("click", (e) => {
   document.querySelectorAll("#compare-toggle button").forEach(x => x.classList.remove("active"));
   b.classList.add("active");
   state.compare = b.dataset.mode;
-  if (state.compare === "split") renderPreview(); else applyFilterFast();
+  renderPreview();
 });
 
 // dropzone + picker
