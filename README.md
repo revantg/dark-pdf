@@ -12,7 +12,9 @@ alphaXiv serves normal white PDFs, renders them with PDF.js, and applies this
 CSS to each page in dark mode:
 
 ```css
-filter: invert(88.8%) hue-rotate(180deg) contrast();
+/* verbatim from alphaXiv's stylesheet — the empty contrast() is theirs,
+   and is simply ignored by the browser, so it acts as contrast(1) */
+.dark .pdfViewer .page { filter: invert(88.8%) hue-rotate(180deg) contrast(); }
 ```
 
 White backgrounds become dark gray, black text becomes light, and figures keep
