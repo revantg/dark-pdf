@@ -247,11 +247,6 @@
   }
   .export-summary { font-family: var(--mono); font-size: 11px; color: var(--text-faint); flex: 1; line-height: 1.6; }
   .export-summary b { color: var(--text-dim); font-weight: 500; }
-  .progress-wrap { flex: 1; display: none; align-items: center; gap: 12px; }
-  .progress-wrap.on { display: flex; }
-  .progress-track { flex: 1; height: 6px; background: var(--surface-2); border-radius: 999px; overflow: hidden; border: 1px solid var(--border); }
-  .progress-fill { height: 100%; width: 0%; background: var(--accent); transition: width 0.15s; }
-  .progress-label { font-family: var(--mono); font-size: 11px; color: var(--text-dim); white-space: nowrap; }
 
   footer.credit {
     text-align: center; padding: 14px; font-size: 12px; color: var(--text-faint);
@@ -379,26 +374,6 @@
       <button class="btn reset-btn" id="reset-btn">↺ Reset to alphaXiv defaults</button>
     </div>
 
-    <div class="panel-section">
-      <p class="panel-title">Output quality</p>
-      <div class="control">
-        <div class="control-head"><label>Resolution</label></div>
-        <div class="segmented" id="dpi-seg">
-          <button data-scale="1">1×</button>
-          <button data-scale="2" class="active">2×</button>
-          <button data-scale="3">3×</button>
-        </div>
-        <div class="hint">Higher = sharper &amp; larger file. 2× ≈ 150 DPI.</div>
-      </div>
-      <div class="control">
-        <div class="control-head">
-          <label for="quality">JPEG quality</label>
-          <input class="val" id="quality-val" type="text" inputmode="numeric" value="80" aria-label="JPEG quality" />
-        </div>
-        <input type="range" id="quality" min="0" max="100" step="1" value="80" />
-        <div class="hint">0 = lossless PNG (much larger).</div>
-      </div>
-    </div>
   </aside>
 </main>
 
@@ -406,18 +381,12 @@
   <div class="export-summary" id="export-summary">
     Load a PDF to begin. <b>Everything runs locally.</b>
   </div>
-  <div class="progress-wrap" id="progress-wrap">
-    <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
-    <span class="progress-label" id="progress-label">Baking…</span>
-    <button class="btn ghost" id="cancel-btn">Cancel</button>
-  </div>
-  <button class="btn primary" id="export-btn" disabled>↓ Download dark PDF</button>
+  <button class="btn primary" id="export-btn" disabled>↓ Download PDF</button>
 </div>
 
 <div class="toast" id="toast"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.min.mjs" type="module"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script type="module">
 import * as pdfjsLib from "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.min.mjs";
 pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.worker.min.mjs";
@@ -426,14 +395,14 @@ const REPO_URL = "https://github.com/revantg/dark-pdf";
 const SAMPLE_URL = "https://mozilla.github.io/pdf.js/web/compressed.tracemonkey-pldi-09.pdf";
 const PREVIEW_PAGES = 3;
 
-const DEFAULTS = { invert: 0.888, hue: 180, contrast: 1.0, scale: 2, quality: 80 };
+const DEFAULTS = { invert: 0.888, hue: 180, contrast: 1.0 };
 const PRESETS = {
   alphaxiv:  { invert: 0.888, hue: 180, contrast: 1.0 },
   pureblack: { invert: 1.0,   hue: 180, contrast: 1.05 },
   sepia:     { invert: 0.85,  hue: 200, contrast: 0.95 },
 };
 
-const state = { ...DEFAULTS, doc: null, fileName: "", numPages: 0, compare: "dark", busy: false, cancel: false };
+const state = { ...DEFAULTS, doc: null, rawBytes: null, fileName: "", numPages: 0, compare: "dark", busy: false };
 
 const $ = (id) => document.getElementById(id);
 document.querySelectorAll("#repo-link").forEach(a => a.href = REPO_URL);
@@ -550,28 +519,25 @@ function showLoading(on, label = "Rendering…") {
 }
 function updateSummary() {
   if (!state.doc) return;
-  const est = estimateSize();
+  const bytes = state.rawBytes ? state.rawBytes.byteLength : 0;
+  const sz = bytes > 1048576 ? (bytes / 1048576).toFixed(1) + " MB" : Math.round(bytes / 1024) + " KB";
   $("export-summary").innerHTML =
-    `<b>${state.numPages}</b> pages · <b>${state.scale}×</b> · JPEG <b>${state.quality || "lossless"}</b> · ~<b>${est}</b> · <b>local only</b>`;
-}
-function estimateSize() {
-  // rough heuristic: per-page bytes scale with scale^2 and quality
-  const perPage = (state.scale * state.scale) * (state.quality ? (0.02 + state.quality / 100 * 0.14) : 0.5);
-  const mb = perPage * state.numPages;
-  return mb < 1 ? Math.round(mb * 1024) + " KB" : mb.toFixed(1) + " MB";
+    `<b>${state.numPages}</b> pages · <b>${sz}</b> · original text &amp; diagrams kept · <b>local only</b>`;
 }
 
 // ---- load a PDF from ArrayBuffer ----
 async function loadPdf(buf, name) {
   try {
     showLoading(true, "Parsing PDF…");
+    // keep an untouched copy of the original bytes (pdf.js detaches the buffer it's given)
+    state.rawBytes = new Uint8Array(buf.slice(0));
     const doc = await pdfjsLib.getDocument({ data: buf }).promise;
     state.doc = doc; state.numPages = doc.numPages; state.fileName = name;
     $("dropzone").style.display = "none";
     $("pages").classList.remove("hidden");
     $("compare-toggle").classList.remove("hidden");
     $("export-btn").disabled = false;
-    renderFileInfo(name, buf.byteLength);
+    renderFileInfo(name, state.rawBytes.byteLength);
     updateSummary();
     await renderPreview();
   } catch (e) {
@@ -587,7 +553,7 @@ function renderFileInfo(name, bytes) {
   $("clear-file").onclick = resetAll;
 }
 function resetAll() {
-  state.doc = null; state.numPages = 0;
+  state.doc = null; state.numPages = 0; state.rawBytes = null;
   $("dropzone").style.display = "flex";
   $("pages").classList.add("hidden");
   $("pages").innerHTML = "";
@@ -610,69 +576,31 @@ function handleFile(file) {
   reader.readAsArrayBuffer(file);
 }
 
-// ---- export: bake each page at full scale with the same filter ----
-async function exportPdf() {
-  if (!state.doc || state.busy) return;
-  state.busy = true; state.cancel = false;
+// ---- export: save the ORIGINAL PDF untouched (alphaXiv behaviour) ----
+// Dark mode is a view-only CSS filter; the downloaded file keeps real text,
+// diagrams and vectors intact rather than being flattened to images.
+function exportPdf() {
+  if (!state.rawBytes || state.busy) return;
+  state.busy = true;
   $("export-btn").disabled = true;
-  $("export-summary").style.display = "none";
-  $("progress-wrap").classList.add("on");
-  const { jsPDF } = window.jspdf;
-  let pdf = null;
-
   try {
-    for (let i = 1; i <= state.numPages; i++) {
-      if (state.cancel) break;
-      setProgress(i, state.numPages, `Baking page ${i}/${state.numPages}`);
-      const page = await state.doc.getPage(i);
-      const viewport = page.getViewport({ scale: state.scale * 1.5 }); // 1.5 ≈ 108dpi base; scale multiplies
-      const canvas = document.createElement("canvas");
-      canvas.width = Math.floor(viewport.width);
-      canvas.height = Math.floor(viewport.height);
-      const ctx = canvas.getContext("2d");
-      ctx.fillStyle = "#ffffff";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      await page.render({ canvasContext: ctx, viewport }).promise;
-
-      // bake the filter into pixels
-      ctx.filter = filterString();
-      ctx.drawImage(canvas, 0, 0);
-      ctx.filter = "none";
-
-      const isJpeg = state.quality > 0;
-      const mime = isJpeg ? "image/jpeg" : "image/png";
-      const data = canvas.toDataURL(mime, isJpeg ? state.quality / 100 : undefined);
-
-      const ptW = page.getViewport({ scale: 1 }).width;
-      const ptH = page.getViewport({ scale: 1 }).height;
-      const orient = ptW > ptH ? "l" : "p";
-      if (!pdf) pdf = new jsPDF({ orientation: orient, unit: "pt", format: [ptW, ptH] });
-      else pdf.addPage([ptW, ptH], orient);
-      pdf.addImage(data, isJpeg ? "JPEG" : "PNG", 0, 0, ptW, ptH);
-
-      await new Promise(r => requestAnimationFrame(r)); // yield to UI
-    }
-    if (!state.cancel && pdf) {
-      const outName = state.fileName.replace(/\.pdf$/i, "") + ".dark.pdf";
-      pdf.save(outName);
-      toast("Saved " + outName);
-    } else if (state.cancel) {
-      toast("Export cancelled.");
-    }
+    const blob = new Blob([state.rawBytes], { type: "application/pdf" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = state.fileName && /\.pdf$/i.test(state.fileName) ? state.fileName : (state.fileName || "document") + ".pdf";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    toast("Saved original PDF (text & diagrams preserved)");
   } catch (e) {
     console.error(e);
-    toast("Export failed — try a lower resolution.", true);
+    toast("Download failed.", true);
   } finally {
     state.busy = false;
-    $("progress-wrap").classList.remove("on");
-    $("export-summary").style.display = "";
     $("export-btn").disabled = false;
-    updateSummary();
   }
-}
-function setProgress(i, n, label) {
-  $("progress-fill").style.width = (i / n * 100) + "%";
-  $("progress-label").textContent = label;
 }
 
 // ---- controls wiring ----
@@ -706,7 +634,6 @@ function bindSlider(id, key, fmt, parse) {
 bindSlider("invert", "invert", v => v.toFixed(3), s => parseFloat(s));
 bindSlider("hue", "hue", v => Math.round(v) + "°", s => parseFloat(s));
 bindSlider("contrast", "contrast", v => v.toFixed(2), s => parseFloat(s));
-bindSlider("quality", "quality", v => String(Math.round(v)), s => parseFloat(s));
 
 function setControls(p) {
   for (const k of ["invert", "hue", "contrast"]) {
@@ -732,13 +659,6 @@ $("presets").addEventListener("click", (e) => {
   onFilterChange(true);
 });
 $("reset-btn").addEventListener("click", () => { setControls(DEFAULTS); onFilterChange(true); toast("Reset to alphaXiv defaults"); });
-$("dpi-seg").addEventListener("click", (e) => {
-  const b = e.target.closest("button"); if (!b) return;
-  document.querySelectorAll("#dpi-seg button").forEach(x => x.classList.remove("active"));
-  b.classList.add("active");
-  state.scale = parseInt(b.dataset.scale, 10);
-  updateSummary();
-});
 $("compare-toggle").addEventListener("click", (e) => {
   const b = e.target.closest("button"); if (!b) return;
   document.querySelectorAll("#compare-toggle button").forEach(x => x.classList.remove("active"));
@@ -801,7 +721,6 @@ $("url-form").addEventListener("submit", (e) => {
 });
 
 $("export-btn").addEventListener("click", exportPdf);
-$("cancel-btn").addEventListener("click", () => { state.cancel = true; });
 
 // keyboard: 'o' open, 'd' download
 window.addEventListener("keydown", (e) => {

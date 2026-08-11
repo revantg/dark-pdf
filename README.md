@@ -18,24 +18,28 @@ White backgrounds become dark gray (`#1d1d1d`), black text becomes light, and
 figures keep their real colors because `hue-rotate(180deg)` cancels the hue
 flip that `invert` introduces.
 
-This tool applies the same filter to a PDF **you** upload, previews the first
-few pages live, and lets you export a baked dark PDF — all client-side.
+This tool applies the same filter to a PDF **you** open, previews the pages
+live, and lets you read in dark mode — all client-side.
 
 ## Features
 
 - **Live preview** of the first 3 pages, updating instantly as you tweak.
-- **Tweakable** invert / hue-rotate / contrast, plus output resolution and JPEG
-  quality.
+- **Tweakable** invert / hue-rotate / contrast.
 - **Presets:** alphaXiv, Pure black, Sepia night.
 - **Before / after** toggle and split-slider compare.
+- **Download keeps the original** — real text, selectable content, vector
+  figures and diagrams are all preserved, exactly like alphaXiv.
 - **100% local** — files never leave your browser; there is no server.
 
 ## How it works
 
-The same filter string drives both the preview (`canvas.style.filter`) and the
-export (`ctx.filter` baked into pixels via jsPDF), so what you see is what you
-download. Built with vanilla HTML/CSS/JS + [PDF.js](https://mozilla.github.io/pdf.js/)
-and [jsPDF](https://github.com/parallax/jsPDF) from a CDN — no build step.
+Dark mode is a **view-only CSS filter** applied to each rendered page
+(`.page { filter: invert(88.8%) hue-rotate(180deg) }`) — the same approach
+alphaXiv uses. The filter is a display effect only; it is never baked into the
+file. When you hit **Download**, you get the **original PDF untouched**, so
+text, diagrams and vectors stay intact rather than being flattened to images.
+Built with vanilla HTML/CSS/JS + [PDF.js](https://mozilla.github.io/pdf.js/)
+from a CDN — no build step.
 
 ## Command-line skill
 
